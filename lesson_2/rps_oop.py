@@ -2,7 +2,30 @@ import random
 import os
 
 
+class MoveDisplayMixin:
+    def _display_moves(self, moves):
+        freq_dict = {}
+        result = []
+
+        for name in moves:
+            first_char = name[0].lower()
+            freq_dict[first_char] = freq_dict.get(first_char, 0) + 1
+
+            idx = freq_dict[first_char]
+            result.append(f"({name[:idx]}){name[idx:]}")
+
+        return ", ".join(result)
+
+
 class Move:
+    MOVE_DICT = {
+        "r": "rock",
+        "p": "paper",
+        "s": "scissors",
+        "l": "lizard",
+        "sp": "spock",
+    }
+    VALID_MOVES = tuple(MOVE_DICT.keys()) + tuple(MOVE_DICT.values())
     WINNING_MOVES = {
         "rock": ["scissors", "lizard"],
         "paper": ["rock", "spock"],
@@ -56,38 +79,75 @@ class Spock(Move):
 
 
 class Player:
-    CHOICES = (Rock(), Paper(), Scissors(), Lizard(), Spock())
+    MOVES = (Rock(), Paper(), Scissors(), Lizard(), Spock())
+    MOVE_NAMES = [move._name for move in MOVES]
 
     def __init__(self):
         self.move = None
 
 
-class Human(Player):
-    CHOICE_DISPLAY = [
-        (
-            f"({choice._name[:2]}){choice._name[2:]}"
-            if choice._name == "spock"
-            else f"({choice._name[0]}){choice._name[1:]}"
-        )
-        for choice in Player.CHOICES
-    ]
-
+class Human(MoveDisplayMixin, Player):
     def __init__(self):
         super().__init__()
 
     def choose(self):
         player_move = input(
-            f"Choose a move - {", ".join(self.__class__.CHOICE_DISPLAY)}: "
+            f"Choose a move - {self._display_moves(Player.MOVE_NAMES)}: "
         ).lower()
         self.move = player_move
 
 
 class Computer(Player):
+    OPPONENT_DICT = {"1": "Default", "2": "Hal", "3": "R2D2", "4": "Daneel"}
+    VALID_SELECTION = OPPONENT_DICT.keys()
+    NAMES = OPPONENT_DICT.values()
+
     def __init__(self):
         super().__init__()
+        self._name = "Default"
+        self._description = "Moves are chosen completely at random."
 
     def choose(self):
-        self.move = random.choice(Player.CHOICES)
+        self.move = random.choice(Player.MOVES)
+
+
+class Hal(Computer):
+    SCISSORS_AFFINITY = 3
+
+    def __init__(self):
+        super().__init__()
+        self._name = "Hal"
+        self._description = "Has a strange affinity for Scissors."
+        self._moves = Player.MOVES + tuple(
+            [Scissors() for _ in range(self.__class__.SCISSORS_AFFINITY)]
+        )
+
+    def choose(self):
+        self.move = random.choice(self._moves)
+
+
+class R2D2(Computer):
+    def __init__(self):
+        super().__init__()
+        self._name = "R2D2"
+        self._description = "Only chooses Rock for its moves."
+
+    def choose(self):
+        self.move = Rock()
+
+
+class Daneel(Computer):
+    def __init__(self, history):
+        super().__init__()
+        self._name = "Daneel"
+        self._description = "Copies the Player's move in the previous round or randomly if first round."
+        self._history = history
+
+    def choose(self):
+        if len(self._history._player_moves):
+            self.move = self._history._player_moves[-1]
+        else:
+            self.move = random.choice(Player.MOVES)
 
 
 class MatchHistory:
@@ -107,21 +167,17 @@ class MatchHistory:
             ]
         )
 
+class Opponents:
+    def __init__(self, history):
+        self.types = (Computer(), Hal(), R2D2(), Daneel(history))
+
 
 class RPSGame:
     WINNING_SCORE = 5
-    CHOICE_DICT = {
-        "r": "rock",
-        "p": "paper",
-        "s": "scissors",
-        "l": "lizard",
-        "sp": "spock",
-    }
-    VALID_CHOICES = tuple(CHOICE_DICT.keys()) + tuple(CHOICE_DICT.values())
 
     def __init__(self):
         self._human = Human()
-        self._computer = Computer()
+        self._computer = None
         self._score = {"player": 0, "computer": 0}
         self._history = MatchHistory()
 
@@ -162,6 +218,11 @@ class RPSGame:
         os.system("clear")
         self._display_score()
 
+    def _display_chosen_opponent(self):
+        print()
+        print(f"You chose {self._computer._name}!")
+        self._press_to_continue()
+
     def _display_score(self):
         print(f"Player: {self._score["player"]}   |")
         print(f"Computer: {self._score["computer"]} |")
@@ -200,22 +261,40 @@ class RPSGame:
         for player in self._score:
             self._score[player] = 0
 
+    def _request_opponent(self):
+        self._clear_screen()
+        print("List of your opponents:")
+        for num, opponent in Computer.OPPONENT_DICT.items():
+            print(f"{num}. {opponent}: {self._convert_opponent_to_obj(opponent)._description}")
+            print()
+
+        return input("Choose an opponent (1-4): ")
+
+    def _validate_opponent(self, opponent):
+        while opponent not in Computer.VALID_SELECTION:
+            opponent = input(
+                f"Invalid opponent. Choose an opponent (1-4): "
+            )
+
+        return self._convert_opponent_to_obj(Computer.OPPONENT_DICT[opponent])
+
+    def _convert_opponent_to_obj(self, name):
+        for opponent in Opponents(self._history).types:
+            if name == opponent._name:
+                return opponent
+
     def _convert_move_to_obj(self, move):
-        for choice in Player.CHOICES:
-            if move == choice._name:
-                return choice
+        for player_move in Player.MOVES:
+            if move == player_move._name:
+                return player_move
 
     def _validate_move(self, move):
-        while move not in self.__class__.VALID_CHOICES:
+        while move not in Move.VALID_MOVES:
             move = input(
-                f"Invalid move. Choose a move - {", ".join(Human.CHOICE_DISPLAY)}: "
+                f"Invalid move. Choose a move - {self._human._display_moves(Player.MOVE_NAMES)}: "
             ).lower()
 
-        move = (
-            self.__class__.CHOICE_DICT[move]
-            if move in self.__class__.CHOICE_DICT
-            else move
-        )
+        move = Move.MOVE_DICT[move] if move in Move.MOVE_DICT else move
         return self._convert_move_to_obj(move)
 
     def _validate_answer(self, answer):
@@ -238,6 +317,8 @@ class RPSGame:
 
         while True:
             self._reset_score()
+            self._computer = self._validate_opponent(self._request_opponent())
+            self._display_chosen_opponent()
 
             while not self._game_over():
                 self._clear_screen_with_display()
