@@ -2,7 +2,7 @@ import random
 import os
 
 
-class MoveDisplayMixin:
+class DisplayMixin:
     def display_moves(self, moves):
         freq_dict = {}
         result = []
@@ -15,6 +15,13 @@ class MoveDisplayMixin:
             result.append(f"({name[:idx]}){name[idx:]}")
 
         return ", ".join(result)
+
+    def _clear_screen(self):
+        os.system("clear")
+
+    def _press_to_continue(self):
+        print()
+        input("Press enter to continue: ")
 
 
 class Move:
@@ -71,6 +78,7 @@ class Scissors(Move):
         super().__init__()
         self._name = "scissors"
 
+
 class Lizard(Move):
     def __init__(self):
         super().__init__()
@@ -82,6 +90,7 @@ class Spock(Move):
         super().__init__()
         self._name = "spock"
 
+
 class Player:
     MOVES = (Rock(), Paper(), Scissors(), Lizard(), Spock())
     MOVE_NAMES = [move.name for move in MOVES]
@@ -90,7 +99,7 @@ class Player:
         self.move = None
 
 
-class Human(MoveDisplayMixin, Player):
+class Human(DisplayMixin, Player):
     def __init__(self):
         super().__init__()
 
@@ -174,15 +183,16 @@ class MatchHistory:
     def player_moves(self):
         return self._player_moves
 
-    def update(self, player_move, computer_move):
-        self._player_moves.append(player_move)
-        self._computer_moves.append(computer_move)
+    def update(self, player, computer):
+        self._player_moves.append(player.move)
+        self._computer_moves.append((computer.name, computer.move))
 
     def __str__(self):
         return "".join(
             [
                 f"Match {i + 1}: Player chose {self._player_moves[i].name},"
-                f" Computer chose {self._computer_moves[i].name}\n"
+                f" {self._computer_moves[i][0]} chose "
+                f"{self._computer_moves[i][1].name}\n"
                 for i in range(len(self._player_moves))
             ]
         )
@@ -193,7 +203,7 @@ class Opponents:
         self.types = (Computer(), Hal(), R2D2(), Daneel(history))
 
 
-class RPSGame:
+class RPSGame(DisplayMixin):
     WINNING_SCORE = 5
 
     def __init__(self):
@@ -202,9 +212,17 @@ class RPSGame:
         self._score = {"player": 0, "computer": 0}
         self._history = MatchHistory()
 
-    def _press_to_continue(self):
-        print()
-        input("Press enter to continue: ")
+    @staticmethod
+    def _display_goodbye_message():
+        print("Thanks for playing Rock Paper Scissors Lizard Spock. Goodbye!")
+
+    def _display_welcome_message(self):
+        self._clear_screen()
+        print(
+            f"Welcome to Rock Paper Scissors Lizard Spock!"
+            f" The first to {self.__class__.WINNING_SCORE} points wins!"
+        )
+        self._press_to_continue()
 
     def _display_match_history(self):
         self._clear_screen()
@@ -221,20 +239,6 @@ class RPSGame:
                 self._display_match_history()
             else:
                 break
-
-    def _display_welcome_message(self):
-        self._clear_screen()
-        print(
-            f"Welcome to Rock Paper Scissors Lizard Spock!"
-            f" The first to {self.__class__.WINNING_SCORE} points wins!"
-        )
-        self._press_to_continue()
-
-    def _display_goodbye_message(self):
-        print("Thanks for playing Rock Paper Scissors Lizard Spock. Goodbye!")
-
-    def _clear_screen(self):
-        os.system("clear")
 
     def _clear_screen_with_display(self):
         os.system("clear")
@@ -282,7 +286,7 @@ class RPSGame:
         return self._human.move < self._computer.move
 
     def _game_over(self):
-        return max(self._score.values()) == self.__class__.WINNING_SCORE
+        return max(self._score.values()) == RPSGame.WINNING_SCORE
 
     def _update_score_and_history(self):
         if self._human_wins():
@@ -290,7 +294,7 @@ class RPSGame:
         elif self._computer_wins():
             self._score["computer"] += 1
 
-        self._history.update(self._human.move, self._computer.move)
+        self._history.update(self._human, self._computer)
 
     def _reset_score(self):
         for player in self._score:
@@ -331,7 +335,7 @@ class RPSGame:
         while move not in Move.VALID_MOVES:
             move = input(
                 "Invalid move. Choose a move - "
-                f"{self._human.display_moves(Player.MOVE_NAMES)}: "
+                f"{self.display_moves(Player.MOVE_NAMES)}: "
             ).lower()
 
         move = Move.MOVE_DICT[move] if move in Move.MOVE_DICT else move
@@ -372,7 +376,7 @@ class RPSGame:
             if not self._play_again():
                 break
 
-        self._display_goodbye_message()
+        RPSGame._display_goodbye_message()
 
 
 game = RPSGame()
