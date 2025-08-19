@@ -1,0 +1,1 @@
+my_obj.__class__.mro()
