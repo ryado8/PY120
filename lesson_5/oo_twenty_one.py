@@ -1,5 +1,6 @@
 import random
 import os
+import time
 
 
 def prompt(msg):
@@ -19,6 +20,46 @@ def press_to_continue():
     input("Press enter to continue: ")
 
 
+class Hand:
+    def __init__(self):
+        self._cards = []
+
+    @property
+    def cards(self):
+        return self._cards
+
+    def add(self, card):
+        self.cards.append(card)
+
+    def reset(self):
+        self._cards.clear()
+
+    def value(self):
+        ranks = [card.rank for card in self.cards if not card.hidden]
+        if len(ranks) < 2:
+            return "unknown"
+
+        total = sum([card.value() for card in self.cards if not card.hidden])
+
+        for _ in range(ranks.count("A")):
+            if total > TwentyOneGame.TWENTY_ONE:
+                total -= Card.FACE_VALUE
+
+        return total
+
+    def hide_card(self):
+        self.cards[-1].hide()
+
+    def reveal_card(self):
+        self.cards[-1].reveal()
+
+    def join_cards(self):
+        return ", ".join([str(card) for card in self.cards])
+
+    def is_busted(self):
+        return self.value() > TwentyOneGame.TWENTY_ONE
+
+
 class Card:
     FACE_CARDS = ("J", "Q", "K")
     FACE_VALUE = 10
@@ -27,6 +68,7 @@ class Card:
     def __init__(self, rank, suit):
         self._rank = rank
         self._suit = suit
+        self._hidden = False
 
     @property
     def rank(self):
@@ -36,7 +78,20 @@ class Card:
     def suit(self):
         return self._suit
 
-    def stringify(self):
+    @property
+    def hidden(self):
+        return self._hidden
+
+    def hide(self):
+        self._hidden = True
+
+    def reveal(self):
+        self._hidden = False
+
+    def __str__(self):
+        if self._hidden:
+            return "[hidden]"
+
         return f"{self.rank}{self.suit}"
 
     def value(self):
@@ -74,44 +129,17 @@ class Deck:
         self._cards = cards
 
     def deal_card(self, participant):
-        participant.hand.append(self.cards.pop())
+        participant.hand.add(self.cards.pop())
 
 
-class Participant:
-    def __init__(self):
-        self._hand = []
+class Player:
+    def __init__(self, balance):
+        self._hand = Hand()
+        self.balance = balance
 
     @property
     def hand(self):
         return self._hand
-
-    def convert_to_str(self, hand):
-        return [card.stringify() for card in hand]
-
-    def hand_value(self):
-        ranks = [card.rank for card in self.hand]
-        total = sum([card.value() for card in self.hand])
-
-        for _ in range(ranks.count("A")):
-            if total > TwentyOneGame.TWENTY_ONE:
-                total -= Card.FACE_VALUE
-
-        return total
-
-    def is_busted(self):
-        return self.hand_value() > TwentyOneGame.TWENTY_ONE
-
-    def join_hand(self):
-        return ", ".join((self.convert_to_str(self.hand)))
-
-    def reset_hand(self):
-        self.hand.clear()
-
-
-class Player(Participant):
-    def __init__(self, balance):
-        super().__init__()
-        self.balance = balance
 
     @property
     def balance(self):
@@ -137,32 +165,20 @@ class Player(Participant):
         return self.balance == 10
 
 
-class Dealer(Participant):
+class Dealer:
     def __init__(self):
-        super().__init__()
-        self._hidden = None
+        self._hand = Hand()
 
-    def hide_card(self):
-        self._hidden = True
-
-    def reveal_card(self):
-        self._hidden = False
-
-    def join_hand(self):
-        if self._hidden:
-            return ", ".join([self.hand[0].stringify(), "[hidden]"])
-
-        return super().join_hand()
-
-    def hand_value(self):
-        if self._hidden:
-            return "unknown"
-
-        return super().hand_value()
+    @property
+    def hand(self):
+        return self._hand
 
 
 class TwentyOneGame:
     PLAYER_BALANCE = 5
+    WINNING_BALANCE = PLAYER_BALANCE * 2
+    DECK_PENETRATION = 0.75 # playing with 75% penetration before reshuffle
+    CARDS_LEFT = int(52 * (1 - DECK_PENETRATION))
     DEALER_STAY = 17
     TWENTY_ONE = 21
 
@@ -170,6 +186,26 @@ class TwentyOneGame:
         self.deck = Deck()
         self.player = Player(TwentyOneGame.PLAYER_BALANCE)
         self.dealer = Dealer()
+
+    @classmethod
+    def display_welcome_message(cls):
+        clear_screen()
+        prompt("Welcome to Twenty One!")
+        prompt(
+            f"Your player balance is ${cls.PLAYER_BALANCE}. "
+            "Each round requires a bet of $1."
+        )
+        prompt(
+            "The game will end when you go broke "
+            f"or double your balance to ${cls.WINNING_BALANCE}."
+        )
+        prompt("Good luck!")
+        press_to_continue()
+
+    @staticmethod
+    def display_goodbye_message():
+        clear_screen()
+        prompt("Thank you for playing. See you next time!")
 
     @staticmethod
     def _validate_decision(decision):
@@ -192,14 +228,16 @@ class TwentyOneGame:
             self.deck.deal_card(self.player)
             self.deck.deal_card(self.dealer)
 
+        self.dealer.hand.hide_card()
+
     def display_hands(self):
-        prompt(f"Dealer's hand: {self.dealer.join_hand()}")
-        prompt(f"Player's hand: {self.player.join_hand()}")
+        prompt(f"Dealer's hand: {self.dealer.hand.join_cards()}")
+        prompt(f"Player's hand: {self.player.hand.join_cards()}")
         display_underline()
 
     def display_hand_values(self):
-        prompt(f"Dealer's total is {self.dealer.hand_value()}")
-        prompt(f"Player's total is {self.player.hand_value()}")
+        prompt(f"Dealer's total is {self.dealer.hand.value()}")
+        prompt(f"Player's total is {self.player.hand.value()}")
         display_underline()
 
     def main_screen(self):
@@ -210,19 +248,18 @@ class TwentyOneGame:
         self.display_hand_values()
 
     def reshuffle_if_low(self):
-        # allows dealing up to 40 cards (~75% penetration) before reshuffle.
-        cards_left = len(self.deck.cards)
-        if cards_left <= 12:
+        cards_remaining = len(self.deck.cards)
+        # allows dealing up to 39 cards (75% penetration) before reshuffle
+        if cards_remaining <= TwentyOneGame.CARDS_LEFT:
             clear_screen()
-            prompt(f"There are only {cards_left} cards left in the deck.")
+            prompt(f"There are only {cards_remaining} cards left in the deck.")
             prompt("Shuffling new deck for the next round...")
             press_to_continue()
             self.deck.reset()
 
     def new_round(self):
-        self.dealer.hide_card()
-        self.dealer.reset_hand()
-        self.player.reset_hand()
+        self.dealer.hand.reset()
+        self.player.hand.reset()
         self.reshuffle_if_low()
 
     def player_turn(self):
@@ -233,9 +270,11 @@ class TwentyOneGame:
             decision = TwentyOneGame._validate_decision(decision)
 
             if decision in ("hit", "h"):
+                prompt("Player hits. Dealing card...")
+                time.sleep(1)
                 self.deck.deal_card(self.player)
 
-            if self.player.is_busted() or (decision in ("s", "stay")):
+            if self.player.hand.is_busted() or (decision in ("s", "stay")):
                 break
 
         self.main_screen()
@@ -244,50 +283,32 @@ class TwentyOneGame:
             press_to_continue()
 
     def dealer_turn(self):
-        self.dealer.reveal_card()
+        self.dealer.hand.reveal_card()
 
         while True:
-            if self.player.is_busted():
+            if self.player.hand.is_busted():
                 break
 
             self.main_screen()
 
-            if self.dealer.hand_value() >= TwentyOneGame.DEALER_STAY:
+            if self.dealer.hand.value() >= TwentyOneGame.DEALER_STAY:
                 break
 
-            if self.dealer.hand_value() < TwentyOneGame.DEALER_STAY:
-                prompt("Dealer hits.")
+            if self.dealer.hand.value() < TwentyOneGame.DEALER_STAY:
+                prompt("Dealer hits. Dealing card...")
+                time.sleep(1)
                 self.deck.deal_card(self.dealer)
-                press_to_continue()
-
-        self.main_screen()
-
-    def display_welcome_message(self):
-        clear_screen()
-        prompt("Welcome to Twenty One!")
-        prompt(
-            f"Your player balance is ${self.player.balance}. "
-            "Each round requires a bet of $1."
-        )
-        prompt("The game will end when you go broke "
-               "or increase your balance to $10.")
-        prompt("Good luck!")
-        press_to_continue()
-
-    def display_goodbye_message(self):
-        clear_screen()
-        prompt("Thank you for playing. See you next time!")
 
     def determine_result(self):
-        result = ''
+        result = ""
 
-        if self.player.is_busted():
+        if self.player.hand.is_busted():
             result = "player_bust"
-        elif self.dealer.is_busted():
+        elif self.dealer.hand.is_busted():
             result = "dealer_bust"
-        elif self.player.hand_value() > self.dealer.hand_value():
+        elif self.player.hand.value() > self.dealer.hand.value():
             result = "player_win"
-        elif self.dealer.hand_value() > self.player.hand_value():
+        elif self.dealer.hand.value() > self.player.hand.value():
             result = "dealer_win"
         else:
             result = "tie"
@@ -306,8 +327,6 @@ class TwentyOneGame:
                 self.player.decrease_balance()
 
     def display_result(self):
-        self.main_screen()
-
         match self.determine_result():
             case "player_bust":
                 prompt("Player busts. Dealer wins!")
@@ -333,7 +352,7 @@ class TwentyOneGame:
         return answer in ("yes", "y")
 
     def start(self):
-        self.display_welcome_message()
+        TwentyOneGame.display_welcome_message()
 
         while True:
             self.player.reset_balance(TwentyOneGame.PLAYER_BALANCE)
@@ -344,12 +363,13 @@ class TwentyOneGame:
                 self.player_turn()
                 self.dealer_turn()
                 self.update_balance()
+                self.main_screen()
                 self.display_result()
 
             if not self.play_again():
                 break
 
-        self.display_goodbye_message()
+        TwentyOneGame.display_goodbye_message()
 
 
 game = TwentyOneGame()
